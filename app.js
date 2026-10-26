@@ -81,32 +81,83 @@ $('logoutBtn').addEventListener('click', async()=>{ if (!sb) return; await sb.au
 async function drawWishes(){
   const grid=$('grid');
   grid.innerHTML='<p>Loading wishes…</p>';
-  const {data,error}=await sb.from('wishes').select('id,title,category,goal_amount,story,status').in('status',['approved','funded']).order('created_at',{ascending:false}).limit(30);
+  const {data,error}=await sb.from('wishes').select('id,title,category,goal_amount,story,status,photo_path').in('status',['approved','funded']).order('created_at',{ascending:false}).limit(30);
   if(error){ grid.innerHTML='<p>Wishes could not be loaded right now.</p>'; return; }
   if(!data.length){ grid.innerHTML='<div class="empty">No approved wishes yet. Be the first to share one.</div>'; return; }
   grid.innerHTML='';
-  data.forEach(w=>grid.insertAdjacentHTML('beforeend',`<article class="card"><div class="pic">🎁</div><small>${esc(w.category)}</small><h3>${esc(w.title)}</h3><p>${esc(w.story)}</p><div class="money">Goal: ₱${money(w.goal_amount)}</div><button class="support" type="button" onclick="alert('Secure funding is the next KindCart stage. Payments are not enabled yet.')">♡ Help this wish</button></article>`));
+  data.forEach(w=>{
+    let photo = '<div class="pic">🎁</div>';
+    if (w.photo_path) {
+      const { data: publicData } = sb.storage.from('wish-images').getPublicUrl(w.photo_path);
+      const url = publicData?.publicUrl;
+      if (url) photo = `<img class="pic wish-photo" src="${esc(url)}" alt="Photo for ${esc(w.title)}" loading="lazy">`;
+    }
+    grid.insertAdjacentHTML('beforeend',`<article class="card">${photo}<small>${esc(w.category)}</small><h3>${esc(w.title)}</h3><p>${esc(w.story)}</p><div class="money">Goal: ₱${money(w.goal_amount)}</div><button class="support" type="button" onclick="alert('Secure funding is the next KindCart stage. Payments are not enabled yet.')">♡ Help this wish</button></article>`);
+  });
 }
 
 $('form').addEventListener('submit', async(e)=>{
   e.preventDefault();
   if(!currentUser){ openAuth('login'); return; }
-  const payload={
-    user_id:currentUser.id,
-    title:$('title').value.trim(),
-    goal_amount:Number($('amount').value),
-    category:$('cat').value,
-    story:$('story').value.trim(),
-    product_url:$('productUrl').value.trim() || null,
-    status:'pending'
-  };
+
+  const form = e.currentTarget;
+  const photoFile = $('photo').files[0] || null;
+  let photoPath = null;
+
+  if (photoFile) {
+    const allowed = ['image/jpeg','image/png','image/webp'];
+    if (!allowed.includes(photoFile.type)) {
+      setMessage('Please choose a JPEG, PNG, or WebP image.', 'error');
+      return;
+    }
+    if (photoFile.size > 10 * 1024 * 1024) {
+      setMessage('Please choose an image smaller than 10 MB.', 'error');
+      return;
+    }
+  }
+
   $('submitWish').disabled=true;
-  const {error}=await sb.from('wishes').insert(payload);
-  $('submitWish').disabled=false;
-  if(error){ setMessage(error.message || 'Could not submit your wish.','error'); return; }
-  e.currentTarget.reset();
-  setMessage('Your wish was submitted successfully and is now pending owner review.');
+  $('submitWish').textContent = photoFile ? 'Uploading photo…' : 'Submitting…';
+
+  try {
+    if (photoFile) {
+      const ext = (photoFile.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'');
+      photoPath = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await sb.storage.from('wish-images').upload(photoPath, photoFile, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: photoFile.type
+      });
+      if (uploadError) throw uploadError;
+    }
+
+    const payload={
+      user_id:currentUser.id,
+      title:$('title').value.trim(),
+      goal_amount:Number($('amount').value),
+      category:$('cat').value,
+      story:$('story').value.trim(),
+      product_url:$('productUrl').value.trim() || null,
+      photo_path:photoPath,
+      status:'pending'
+    };
+
+    const {error}=await sb.from('wishes').insert(payload);
+    if(error) {
+      if (photoPath) await sb.storage.from('wish-images').remove([photoPath]);
+      throw error;
+    }
+
+    form.reset();
+    setMessage('Your wish was submitted successfully and is now pending owner review.');
+  } catch(err) {
+    setMessage(err.message || 'Could not submit your wish.', 'error');
+  } finally {
+    $('submitWish').disabled=false;
+    $('submitWish').textContent='Submit for review ✨';
+  }
 });
+
 
 async function initKindCart() {
   if (!window.supabase || typeof window.supabase.createClient !== 'function') {
