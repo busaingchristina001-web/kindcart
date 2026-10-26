@@ -1,6 +1,6 @@
 const SUPABASE_URL = 'https://utdoqbqxwcnexipseihh.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_XeBoR2zNqwDxyxEYCvXkVQ_u5w4e71_';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+let sb = null;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s='') => String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -104,5 +104,14 @@ $('form').addEventListener('submit', async(e)=>{
   setMessage('Your wish was submitted successfully and is now pending owner review.');
 });
 
-refreshAuth();
-drawWishes();
+async function initKindCart() {
+  if (!window.supabase || typeof window.supabase.createClient !== 'function') {
+    console.error('Supabase library failed to load.');
+    return;
+  }
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  await refreshAuth();
+  drawWishes();
+}
+
+initKindCart();
