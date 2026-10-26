@@ -1,17 +1,13 @@
-# KindCart
+# KindCart v2
 
-Your wish. Someone's kindness.
+This version connects the static GitHub Pages frontend to Supabase for real email authentication and database-backed wish submissions.
 
-This is your editable KindCart front-end prototype. Open `index.html` to use it and `admin.html` for the Owner Dashboard.
+## Before uploading
+1. Run `security-admin.sql` in the Supabase SQL Editor.
+2. Keep Email authentication enabled and keep the GitHub Pages Site URL / Redirect URL configured.
+3. Upload `index.html`, `styles.css`, `app.js`, and `admin.html` to the root of the GitHub repository, replacing the old versions.
+4. Create your first account from the live KindCart site and confirm its email.
+5. Only after the account exists, promote that specific account to admin in the SQL Editor. Do not expose a service-role or secret key in these files.
 
-## Included
-- Responsive public website
-- Wish submission
-- Browser-local pending review queue
-- Owner approve/reject dashboard
-- Demo supporter flow
-
-## Production requirements
-Before accepting real payments, add a secure backend/database, authentication and authorization, a payment provider account controlled by you, moderation/fraud controls, email notifications, privacy/terms/refund policies, and your own domain/hosting.
-
-Never put payment secret keys, passwords, bank details, or other credentials in these public HTML/JS files.
+## Not enabled yet
+Photo storage and real payments are intentionally not enabled yet. They need Storage policies and a server-side payment/webhook flow respectively.
