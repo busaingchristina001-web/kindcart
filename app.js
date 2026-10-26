@@ -34,6 +34,7 @@ function closeAuth(){ $('authModal').classList.remove('open'); }
 window.openAuth=openAuth; window.closeAuth=closeAuth;
 
 async function refreshAuth() {
+  if (!sb) return;
   const { data } = await sb.auth.getUser();
   currentUser = data.user || null;
   $('guestActions').style.display = currentUser ? 'none' : 'flex';
@@ -50,6 +51,10 @@ async function refreshAuth() {
 
 $('authForm').addEventListener('submit', async (e) => {
   e.preventDefault();
+  if (!sb) {
+    authMessage('KindCart is still connecting. Refresh the page and try again.', 'error');
+    return;
+  }
   const mode=e.currentTarget.dataset.mode;
   const email=$('authEmail').value.trim();
   const password=$('authPassword').value;
@@ -71,8 +76,7 @@ $('authForm').addEventListener('submit', async (e) => {
   finally { $('authSubmit').disabled=false; }
 });
 
-$('logoutBtn').addEventListener('click', async()=>{ await sb.auth.signOut(); await refreshAuth(); });
-sb.auth.onAuthStateChange(()=>setTimeout(refreshAuth,0));
+$('logoutBtn').addEventListener('click', async()=>{ if (!sb) return; await sb.auth.signOut(); await refreshAuth(); });
 
 async function drawWishes(){
   const grid=$('grid');
@@ -109,9 +113,12 @@ async function initKindCart() {
     console.error('Supabase library failed to load.');
     return;
   }
-  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+  sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  sb.auth.onAuthStateChange(()=>setTimeout(refreshAuth,0));
   await refreshAuth();
-  drawWishes();
+  await drawWishes();
 }
 
 initKindCart();
