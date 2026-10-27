@@ -78,6 +78,13 @@ $('authForm').addEventListener('submit', async (e) => {
 
 $('logoutBtn').addEventListener('click', async()=>{ if (!sb) return; await sb.auth.signOut(); await refreshAuth(); });
 
+let selectedWish = null;
+
+async function fundedAmount(wishId){
+  const {data,error}=await sb.rpc('wish_funded_amount',{wish_uuid:wishId});
+  return error ? 0 : Number(data || 0);
+}
+
 async function drawWishes(){
   const grid=$('grid');
   grid.innerHTML='<p>Loading wishes…</p>';
@@ -85,16 +92,68 @@ async function drawWishes(){
   if(error){ grid.innerHTML='<p>Wishes could not be loaded right now.</p>'; return; }
   if(!data.length){ grid.innerHTML='<div class="empty">No approved wishes yet. Be the first to share one.</div>'; return; }
   grid.innerHTML='';
-  data.forEach(w=>{
+  for (const w of data){
+    const funded = await fundedAmount(w.id);
+    const remaining = Math.max(0, Number(w.goal_amount)-funded);
+    const pct = Math.min(100, Number(w.goal_amount) ? (funded/Number(w.goal_amount))*100 : 0);
     let photo = '<div class="pic">🎁</div>';
     if (w.photo_path) {
       const { data: publicData } = sb.storage.from('wish-images').getPublicUrl(w.photo_path);
       const url = publicData?.publicUrl;
       if (url) photo = `<img class="pic wish-photo" src="${esc(url)}" alt="Photo for ${esc(w.title)}" loading="lazy">`;
     }
-    grid.insertAdjacentHTML('beforeend',`<article class="card">${photo}<small>${esc(w.category)}</small><h3>${esc(w.title)}</h3><p>${esc(w.story)}</p><div class="money">Goal: ₱${money(w.goal_amount)}</div><button class="support" type="button" onclick="alert('Secure funding is the next KindCart stage. Payments are not enabled yet.')">♡ Help this wish</button></article>`);
-  });
+    const action = remaining <= 0
+      ? '<button class="support" type="button" disabled>✓ Fully funded</button>'
+      : `<button class="support" type="button" onclick="openFunding('${w.id}')">♡ Help this wish</button>`;
+    grid.insertAdjacentHTML('beforeend',`<article class="card">${photo}<small>${esc(w.category)}</small><h3>${esc(w.title)}</h3><p>${esc(w.story)}</p><div class="money">Goal: ₱${money(w.goal_amount)}</div><div class="fundbar"><span style="width:${pct}%"></span></div><div class="fundmeta">₱${money(funded)} funded · ₱${money(remaining)} remaining</div>${action}</article>`);
+  }
 }
+
+async function openFunding(wishId){
+  if(!currentUser){ openAuth('login'); return; }
+  const {data,error}=await sb.from('wishes').select('id,title,goal_amount,status').eq('id',wishId).single();
+  if(error || !data){ setMessage('Could not open this wish.', 'error'); return; }
+  const funded=await fundedAmount(wishId);
+  selectedWish={...data,funded,remaining:Math.max(0,Number(data.goal_amount)-funded)};
+  $('fundTitle').textContent=`Help ${data.title}`;
+  $('fundProgress').textContent=`₱${money(funded)} funded of ₱${money(data.goal_amount)} · ₱${money(selectedWish.remaining)} remaining`;
+  $('fundAmount').value='';
+  $('gcashRef').value='';
+  $('fundMsg').style.display='none';
+  $('fundModal').classList.add('open');
+}
+function closeFunding(){ $('fundModal').classList.remove('open'); selectedWish=null; }
+function setFundAmount(v){ if(selectedWish) $('fundAmount').value=Math.min(Number(v),selectedWish.remaining || Number(v)); }
+function fundRemaining(){ if(selectedWish) $('fundAmount').value=selectedWish.remaining; }
+window.openFunding=openFunding; window.closeFunding=closeFunding; window.setFundAmount=setFundAmount; window.fundRemaining=fundRemaining;
+
+async function submitContribution(){
+  if(!currentUser || !selectedWish) return;
+  const amount=Number($('fundAmount').value);
+  const ref=$('gcashRef').value.trim();
+  if(!amount || amount<=0){ return fundingMessage('Enter the amount you paid.','error'); }
+  if(amount>selectedWish.remaining){ return fundingMessage(`The maximum remaining amount is ₱${money(selectedWish.remaining)}.`,'error'); }
+  if(ref.length<4){ return fundingMessage('Enter the GCash reference number from your receipt.','error'); }
+  $('submitContribution').disabled=true;
+  try{
+    const {error}=await sb.from('contributions').insert({
+      wish_id:selectedWish.id,
+      supporter_id:currentUser.id,
+      amount,
+      payment_status:'pending',
+      payment_reference:ref
+    });
+    if(error) throw error;
+    fundingMessage('Submitted for verification. The funded total will update after the KindCart owner confirms your GCash payment.');
+    $('fundAmount').value=''; $('gcashRef').value='';
+  }catch(err){
+    fundingMessage(err.message?.includes('duplicate') ? 'That GCash reference number was already submitted.' : (err.message || 'Could not submit payment for verification.'),'error');
+  }finally{ $('submitContribution').disabled=false; }
+}
+function fundingMessage(text,type='ok'){
+  const el=$('fundMsg'); el.className=`notice ${type}`; el.textContent=text; el.style.display='block';
+}
+window.submitContribution=submitContribution;
 
 $('form').addEventListener('submit', async(e)=>{
   e.preventDefault();
